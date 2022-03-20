@@ -1,0 +1,376 @@
+---
+title: "Unsupervised learning"
+author: "Kylie Ariel Bemis"
+date: "11/17/2020"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Unsupervised learning
+
+
+
+# Example: Remote sensing
+
+For some examples, we will explore remote sensing data. Remote sensing is used to collect geological information about the Earth from space based on different channels of the electromagnetic spectrum.
+
+We will use the `Satellite` dataset from the `mlbench` package.
+
+This includes data from four spectral bands (two in the visible spectrum and two in the infrared spectrum). Each observation is a neighborhood of nine pixels, making a total of 36 features for each data point.
+
+The dataset includes class labels for the type of landscape represented by the neighborhoods.
+
+```{r}
+library(tidyverse)
+library(mlbench)
+data(Satellite)
+
+as_tibble(Satellite)
+```
+
+```{r}
+ggplot(Satellite, aes(x=classes, fill=classes)) +
+  geom_bar(show.legend=FALSE) +
+  scale_fill_brewer(palette="Dark2") +
+  labs(x="Landscape",
+       title="Class distribution for remote sensing data") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+# Re-structuring the data
+
+Unsupervised analysis can typically only be performed on a numeric matrix, rather than a data frame. Therefore, we re-structure the data into a matrix consisting of only numeric variables.
+
+## Remote sensing data
+
+```{r}
+satellite <- as.matrix(Satellite[,1:36])
+
+satellite_cl <- Satellite$classes
+satellite_bd <- rep(c("V1", "V2", "IR1", "IR2"),
+                    length.out=ncol(satellite))
+
+table(satellite_cl)
+```
+
+```{r}
+boxplot(satellite, xlab="Spectrum", ylab="Intensity")
+```
+
+# Dimension reduction
+
+Dimension reduction can be used as a visualization technique for high-dimensional data, or to reduce the data size for input into a machine learning algorithm.
+
+With dimension reduction, our goal is to transform the data into a small number of variables (features/dimensions) that represent as much information as in the original dataset as possible. These transformed variables and their weightings can then give insight into patterns in the data.
+
+## Principal components analysis (PCA)
+
+Principal components analysis is a classic dimension reduction method.
+
+PCA can be calculated in a number of ways, including eigendecomposition of the correlation/covariance matrix or performing SVD on the data matrix.
+
+PCA produces new *orthogonal* (non-correlated) dimensions that are linear combinations of the original data.
+
+That is, the new variables are weighted combinations of the original variables.
+
+### Calculating PCA
+
+```{r}
+pc1 <- prcomp(satellite)
+
+summary(pc1)
+
+plot(pc1)
+```
+
+```{r}
+as_tibble(pc1$x) %>%
+  ggplot(aes(x=PC1, y=PC2, color=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  labs(color="Landscape") +
+  theme_minimal()
+```
+
+### Calculating PCA (scaled)
+
+If the variables are not on the same scale, PCA can produce poor results. It's important to scale the data in this case.
+
+```{r}
+pc2 <- prcomp(satellite, scale.=TRUE)
+
+summary(pc2)
+
+plot(pc2)
+```
+
+Because the original data are on a comparable scale, there is little difference for the remote sensing data.
+
+```{r}
+as_tibble(pc2$x) %>%
+  ggplot(aes(x=PC1, y=PC2, color=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  labs(color="Landscape") +
+  theme_minimal()
+```
+
+### Interpreting PCA
+
+Check for patterns in the PC loadings:
+
+```{r}
+as_tibble(pc1$rotation) %>%
+  ggplot(aes(x=PC1, y=PC2, color=satellite_bd)) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  labs(color="Spectrum band") +
+  theme_minimal()
+```
+
+Check loadings for PC1:
+
+```{r}
+as_tibble(pc1$rotation) %>%
+  ggplot(aes(x=seq_len(ncol(satellite)), y=PC1)) +
+  geom_col() +
+  labs(x="Feature") +
+  theme_minimal()
+```
+
+Check loadings for PC2:
+
+```{r}
+as_tibble(pc1$rotation) %>%
+  ggplot(aes(x=seq_len(ncol(satellite)), y=PC2)) +
+  geom_col() +
+  labs(x="Feature") +
+  theme_minimal()
+```
+
+## t-Distributed Stochastic Neighborhood Embedding (t-SNE)
+
+The t-Distributed Stochastic Neighborhood Embedding algorithm is a stochastic, nonlinear dimension reduction method.
+
+It uses probability distributions to try to bring more similar data points together, while leaving dissimilar data points far apart.
+
+Because t-SNE is stochastic, it will produce different results each time, so the random seed used to generate the embedding should be recorded for reproducibility.
+
+The algorithm requires two parameters:
+
+- __Perplexity__: balances global and local aspects of the data
+
+- __Iterations__: number of iterations before the clustering is stopped
+
+### Perplexity = 10
+
+```{r}
+library(Rtsne)
+
+set.seed(1)
+tsne1 <- Rtsne(satellite, perplexity=10)
+
+colnames(tsne1$Y) <- c("C1", "C2")
+
+tc1 <- as_tibble(tsne1$Y)
+tc1
+```
+
+```{r}
+ggplot(tc1, aes(x=C1, y=C2, color=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  labs(color="Spectrum band",
+       title="Perplexity = 10") +
+  theme_minimal()
+```
+
+### Perplexity = 30
+
+```{r}
+set.seed(1)
+tsne2 <- Rtsne(satellite, perplexity=30)
+
+colnames(tsne2$Y) <- c("C1", "C2")
+
+tc2 <- as_tibble(tsne2$Y)
+tc2
+```
+
+```{r}
+ggplot(tc2, aes(x=C1, y=C2, color=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  labs(color="Spectrum band",
+       title="Perplexity = 30") +
+  theme_minimal()
+```
+
+### Perplexity = 50
+
+```{r}
+set.seed(1)
+tsne3 <- Rtsne(satellite, perplexity=50)
+
+colnames(tsne3$Y) <- c("C1", "C2")
+
+tc3 <- as_tibble(tsne3$Y)
+tc3
+```
+
+```{r}
+ggplot(tc3, aes(x=C1, y=C2, color=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  labs(color="Spectrum band",
+       title="Perplexity = 50") +
+  theme_minimal()
+```
+
+# Clustering
+
+Clustering can be a useful way to visualize and explore unlabeled data.
+
+In clustering, and our goal is to find homogenous sub-groups within the data by grouping together data points based on similarity.
+
+## Hierarchical Clustering
+
+Hierarchical clustering represents its clusters as a tree, or *dendrogram*. There are two main types of hierarchical clustering:
+
+- __Agglomerative__: The "bottom-up" approach, where each data point begins as its own cluster, and clusters are iteratively merged until there is only a single cluster.
+
+- __Divisive__: The "top-down" approach, where the dataset begins as a single cluster, and is iteratively split until each data point is its own cluster.
+
+Different dissimilarity measures can be used to compare data points:
+
+- Euclidean
+
+- Pearson correlation
+
+Additionally, different "linkages" define how dissimilarity is defined between clusters as a function of the pairwise dissimilarity between their data points:
+
+- Complete-linkage (maximum distance)
+
+- Single-linkage (minimum distance)
+
+- Average (average of distances)
+
+- Ward (minimize within-cluster variance)
+
+### Complete linkage
+
+```{r}
+hc1 <- hclust(dist(satellite), method="complete")
+
+plot(hc1)
+```
+
+```{r}
+hc1_cl <- factor(cutree(hc1, k=6))
+
+ggplot(tc2, aes(x=C1, y=C2, color=hc1_cl, shape=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Set1") +
+  labs(shape="Landscape", color="Cluster",
+       title="Complete linkage") +
+  theme_minimal()
+```
+
+### Average linkage
+
+```{r}
+hc2 <- hclust(dist(satellite), method="average")
+
+plot(hc2)
+```
+
+```{r}
+hc2_cl <- factor(cutree(hc2, k=6))
+
+ggplot(tc2, aes(x=C1, y=C2, color=hc2_cl, shape=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Set1") +
+  labs(shape="Landscape", color="Cluster",
+       title="Average linkage") +
+  theme_minimal()
+```
+
+### Single linkage
+
+```{r}
+hc3 <- hclust(dist(satellite), method="single")
+
+plot(hc3)
+```
+
+```{r}
+hc3_cl <- factor(cutree(hc3, k=6))
+
+ggplot(tc2, aes(x=C1, y=C2, color=hc3_cl, shape=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Set1") +
+  labs(shape="Landscape", color="Cluster",
+       title="Single linkage") +
+  theme_minimal()
+```
+
+## K-means clustering
+
+K-means clustering is an iterative method that begins with a random cluster configuration, then (1) calculates the mean of each cluster, and (2) re-assigns data points to the cluster with the closest mean.
+
+This process repeats until a set number of iterations are performed, or there are no (or very little) changes between iterations.
+
+Because k-means is initialized with a random configuration, it will produce different results each time, so the random seed used to generate the clustering should be recorded for reproducibility.
+
+```{r}
+set.seed(1)
+
+km <- kmeans(satellite, centers=6)
+```
+
+```{r}
+km_cl <- factor(km$cluster)
+
+ggplot(tc2, aes(x=C1, y=C2, color=km_cl, shape=satellite_cl)) +
+  geom_point() +
+  scale_color_brewer(palette="Set1") +
+  labs(shape="Landscape", color="Cluster") +
+  theme_minimal()
+```
+
+## Selection of number of clusters
+
+One way to try to select the number of clusters is by plotting the total within-cluster sum-of-squares for different numbers of clusters and looking for an "elbow".
+
+```{r}
+ks <- 2:10
+
+tot_within_ss <- sapply(ks, function(k) {
+    cl <- kmeans(satellite, k, nstart = 10)
+    cl$tot.withinss
+})
+```
+
+```{r}
+plot(ks, tot_within_ss, type = "b",
+     main = "Selection of # of clusters for satellite data",
+     ylab = "Total within squared distances",
+     xlab = "Values of k tested")
+abline(v=3, col="green", lty=2)
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

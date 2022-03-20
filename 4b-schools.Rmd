@@ -1,0 +1,261 @@
+---
+title: "Case study: Civil rights in public schools"
+author: "Kylie Ariel Bemis"
+date: "10/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      cache = FALSE,
+                      fig.align = 'center',
+                      out.width = '70%',
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+
+This case study uses data from the US Department of Education's Civil Rights Data Collection. It was downloaded from the zipped 2015-2016 data available at https://www2.ed.gov/about/offices/list/ocr/docs/crdc-2015-16.html. 
+The Public Use Data File User's Manual should be included in the zipped files, or can be downloaded at the same location. Use it as a reference to help you understand the dataset.
+
+First, we import the data:
+
+```{r}
+library(tidyverse)
+
+dir1 <- "~/Documents/Northeastern/Courses/DS5110/Content/Data"
+dir2 <- "2015-16-crdc-data/Data Files and Layouts"
+path <- file.path(dir1, dir2, "CRDC 2015-16 School Data.csv")
+crdc <- read_csv(path,
+                 na=c("-2", "-5", "-6", "-7", "-8", "-9"),
+                 guess_max=4000)
+crdc
+```
+
+We need to provide a larger-than-default value to `guess_max` so that columns with a large number of missing values are parsed correctly. We also provide the error codes that should be interpreted as missing values.
+
+
+
+### Exploring the student body demographics
+
+First we investigate the proportion of female students at each school.
+
+```{r, fig.width=4, fig.height=4, out.width='50%'}
+crdc_f <- transmute(crdc,
+                    enr_tot = TOT_ENR_M + TOT_ENR_F,
+                    enr_f = TOT_ENR_F,
+                    prop_f = enr_f / enr_tot)
+
+ggplot(crdc_f, aes(x=prop_f)) +
+  geom_histogram() +
+  labs(x='Proportion of student body',
+       y='Count of schools',
+       title='Female-identifying students') +
+  theme_minimal()
+```
+
+Most schools have approximately 50% female students, with a handful of single-gender schools.
+
+----
+
+Next we investigate the proportion of students of color at each school.
+
+```{r, fig.width=4, fig.height=4, out.width='50%'}
+crdc_poc <- transmute(crdc,
+                      enr_tot = TOT_ENR_M + TOT_ENR_F,
+                      enr_poc = SCH_ENR_HI_M + SCH_ENR_HI_F + # Hispanic
+                        SCH_ENR_AM_M + SCH_ENR_AM_F + # Native American
+                        SCH_ENR_AS_M + SCH_ENR_AS_F + # Asian
+                        SCH_ENR_HP_M + SCH_ENR_HP_F + # Pacific islander
+                        SCH_ENR_BL_M + SCH_ENR_BL_F + # Black
+                        SCH_ENR_TR_M + SCH_ENR_TR_F,  # Multiracial
+                       prop_poc = enr_poc / enr_tot)
+
+ggplot(crdc_poc, aes(x=prop_poc)) + 
+  geom_histogram() +
+  labs(x='Proportion of student body',
+       y='Count of schools',
+       title='Students of color') +
+  theme_minimal()
+```
+
+Most schools are either primarily composed of white students or primarily composed of students of color.
+
+----
+
+Finally we look at the proportion of disabled students at each school.
+
+```{r, fig.width=4, fig.height=4, out.width='50%'}
+crdc_dis <- transmute(crdc,
+                      enr_tot = TOT_ENR_M + TOT_ENR_F,
+                      enr_dis = SCH_ENR_504_M + SCH_ENR_504_F +
+                        SCH_ENR_IDEA_M + SCH_ENR_IDEA_F,
+                      prop_dis = enr_dis / enr_tot)
+
+ggplot(crdc_dis, aes(x=prop_dis)) +
+  geom_histogram() +
+  lims(x=c(0, 1)) +
+  labs(x='Proportion of student body',
+       y='Count of schools',
+       title='Disabled students') +
+  theme_minimal()
+```
+
+In most schools, less than 25% of the students are disabled, except a few schools that primarily serve disabled students.
+
+
+
+### Black students over-referred to law enforcement agencies
+
+We would like to investigate whether Black students are disproportionately referred to law enforcement agencies by schools.
+
+To do this, we create a new data frame with the following columns:
+
+- The total number of students enrolled at each school
+- The total number of Black students enrolled at each school
+- The total number of students who are referred to a law enforcement agency or official
+- The number of Black students who are referred to law enforcement
+- The proportion of students at each school who are Black
+- The proportion of students at each school who are Black among students referred to law enforcement
+
+We also filter the data to include only those schools in which at least one student is referred to a law enforcement agency or official.
+
+```{r, fig.width=4, fig.height=4, out.width='50%'}
+crdc_ref <- transmute(crdc,
+                       enr_tot = TOT_ENR_M + TOT_ENR_F,
+                       enr_bl = SCH_ENR_BL_M + SCH_ENR_BL_F,
+                       ref_tot = TOT_DISCWODIS_REF_M +
+                         TOT_DISCWODIS_REF_F +
+                         TOT_DISCWDIS_REF_IDEA_M +
+                         TOT_DISCWDIS_REF_IDEA_F,
+                       ref_bl = SCH_DISCWODIS_REF_BL_M +
+                         SCH_DISCWODIS_REF_BL_F +
+                         SCH_DISCWDIS_REF_IDEA_BL_M +
+                         SCH_DISCWDIS_REF_IDEA_BL_F,
+                      prop_bl = enr_bl / enr_tot,
+                      prop_ref_bl = ref_bl / ref_tot) %>%
+  filter(ref_tot >= 1)
+
+crdc_ref %>%
+  sample_n(10000) %>%
+  ggplot(aes(x=prop_bl, y=prop_ref_bl)) +
+  geom_point(alpha=1/10) + geom_smooth(se=FALSE) +
+  geom_segment(aes(x=0, y=0, xend=1, yend=1), color="red") +
+  coord_fixed() +
+  labs(x='% Black students among all students',
+       y='% Black students among students refered to police') +
+  theme_minimal()
+```
+
+We use `coord_fixed` to make fixed scale coordinates in which the x- and y-axis have the same length for one unit. This makes it easier to interpret the plot. We also draw a reference line using `geom_segment` to represent the case when the two proportions are the same.
+
+Assuming equally-administered consequences, the proportion of students who are referred to police and are Black should be approximately the same as the proportion of Black students in the whole student body (as shown by the red reference line). But the proportion of students who are Black and referred to police is typically greater than the overall proportion of Black students (as shown by the blue smooth line), indicating an over-representation of Black students among students referred to law enforcement agencies.
+
+The overall proportions are as follows:
+
+```{r}
+summarise(crdc_ref,
+          prop_bl=sum(enr_bl, na.rm=TRUE) / sum(enr_tot, na.rm=TRUE),
+          prop_ref_bl=sum(ref_bl, na.rm=TRUE) / sum(ref_tot, na.rm=TRUE))
+```
+
+Roughly 17.5% of the overall student population is Black, but Black students represent more than 30% of all students referred to law enforcement by schools.
+
+
+
+### Disabled students more often disciplined with corporal punishment
+
+We would like to investigate whether disabled students are more often disciplined with corporal punishment.
+
+To do this, we create a new data frame with the following columns:
+
+- The total number of students enrolled at each school
+- The number of disabled students (served by IDEA) at each school
+- The total number of students who were disciplined with corporal punishment
+- The number of disabled students (served by IDEA) who were disciplined with corporal punishment
+- The proportion of disabled students (served by IDEA) at each school among of all students
+- The proportion of students who were disciplined with corporal punishment who are disabled (served by IDEA) among all disciplined students
+
+```{r, fig.width=4, fig.height=4, out.width='50%'}
+crdc_corp <- filter(crdc, SCH_CORPINSTANCES_IND=="Yes") %>%
+                transmute(
+                       enr_tot = TOT_ENR_M + TOT_ENR_F,
+                       enr_dis = SCH_ENR_IDEA_M + SCH_ENR_IDEA_F,
+                       corp_dis = TOT_DISCWDIS_CORP_IDEA_M +
+                         TOT_DISCWDIS_CORP_IDEA_F,
+                       corp_tot = corp_dis +
+                         TOT_DISCWODIS_CORP_M +
+                         TOT_DISCWODIS_CORP_F,
+                       pr_dis=enr_dis / enr_tot,
+                       pr_corp_dis=corp_dis / corp_tot)
+
+crdc_corp %>%
+  ggplot(mapping=aes(x=pr_dis, y=pr_corp_dis)) +
+  geom_point(alpha=1/10) + 
+  geom_smooth(se=FALSE) +
+  geom_segment(aes(x=0, y=0, xend=1, yend=1), color="red") +
+  coord_fixed(x=c(0,1), y=c(0,1)) +
+  labs(x='% Disabled students among all students',
+       y='% Disabled students among disciplined students') +
+  theme_minimal()
+```
+
+The fitted smooth line suggests that, until the schools reach roughly 25% disabled students, disabled students are over-represented among students who are disciplined with corporal punishment.
+
+```{r}
+summarise(crdc_corp,
+    pr_dis=sum(enr_dis, na.rm=TRUE) / sum(enr_tot, na.rm=TRUE),
+    pr_corp_dis=sum(corp_dis, na.rm=TRUE) / sum(corp_tot, na.rm=TRUE))
+```
+
+Overall, disabled students appear to be over-represented among students disciplined with corporal punishment.
+
+
+
+### Native and Hispanic students underrepresented in GT programs
+
+We would like to investigate whether Native American and Hispanic students are over- or under-represented in Gifted \& Talented programs.
+
+To do this, we create a new data frame with the following columns:
+
+- The total number of students enrolled at each school
+- The number of Native and Hispanic students at each school
+- The total number of students in the school's GT program
+- The number of students in the GT program who are Native or Hispanic
+- The proportion of students at each school who are Native or Hispanic among all students
+- The proportion of students in the GT program who are Native or Hispanic among students in the GT program
+
+```{r, fig.width=4, fig.height=4, out.width='50%'}
+crdc_gt <- filter(crdc, SCH_GT_IND=="Yes") %>%
+                transmute(
+                       enr_tot = TOT_ENR_M + TOT_ENR_F,
+                       enr_amhi = SCH_ENR_AM_M + SCH_ENR_AM_F +
+                         SCH_ENR_HI_M + SCH_ENR_HI_F,
+                       pr_amhi = enr_amhi / enr_tot,
+                       gt_tot = TOT_GTENR_M + TOT_GTENR_F,
+                       gt_amhi = SCH_GTENR_AM_M + SCH_GTENR_AM_F + 
+                         SCH_GTENR_HI_M + SCH_GTENR_HI_F,
+                       pr_gt_amhi = gt_amhi / gt_tot)
+
+crdc_gt %>%
+  sample_n(10000) %>%
+  ggplot(aes(x=pr_amhi, y=pr_gt_amhi)) + 
+  geom_point(alpha=1/10) + 
+  geom_smooth(se=FALSE) +
+  geom_segment(aes(x=0, y=0, xend=1, yend=1), color="red") +
+  coord_fixed(x=c(0,1), y=c(0,1)) +
+  labs(x='% Native & Hisp. students',
+       y='% Native & Hisp. among students in GT program') +
+  theme_minimal()
+```
+
+The fitted smooth lines shows that the proportion of Gifted \& Talented students who are Native and Hispanic is typically lower than the proportion of Native and Hispanic students at each school. This indicates an under-representation of Native and Hispanic students in Gifted \& Talented programs.
+
+```{r}
+summarise(crdc_gt,
+    pr_amhi=sum(enr_amhi, na.rm=TRUE) / sum(enr_tot, na.rm=TRUE),
+    pr_gt_amhi=sum(gt_amhi, na.rm=TRUE) / sum(gt_tot, na.rm=TRUE))
+```
+
+In general, Native and Hispanic students appear to be under-represented in Gifted \& Talented programs.
+

@@ -1,0 +1,533 @@
+---
+title: "Data Modeling 2: Evaluating Models"
+author: "Kylie Ariel Bemis"
+date: "10/20/2020"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# How to evaluate models
+
+Suppose we are trying to predict the price of diamonds.
+
+```{r message=FALSE}
+library(tidyverse)
+library(modelr)
+
+set.seed(1)
+diamonds10k <- diamonds %>%
+  sample_n(10000) %>%
+  mutate(cut_ord = cut,
+         color_ord = forcats::fct_relevel(color, rev(levels(color))),
+         clarity_ord = clarity,
+         cut = as.character(cut_ord),
+         color = as.character(color_ord),
+         clarity = as.character(clarity_ord))
+
+diamonds10k
+```
+
+We are considering two models:
+
+```{r}
+fit1 <- lm(log10(price) ~ log2(carat), data=diamonds10k)
+```
+
+```{r}
+fit2 <- lm(log10(price) ~ log2(carat) + cut + color + clarity, data=diamonds10k)
+```
+
+```{r}
+diamonds10k %>%
+  add_predictions(fit1, "log10pred") %>%
+  mutate(pred = 10^log10pred) %>%
+  ggplot(aes(x=carat)) +
+  geom_point(aes(y=price), alpha=0.1) +
+  geom_line(aes(y=pred), color="red", size=1) +
+  coord_cartesian(xlim=range(diamonds10k$carat),
+                  ylim=range(diamonds10k$price)) +
+  labs(x="Carat", y="Price (US$)") +
+  theme_minimal()
+```
+
+How can we know which model is better?
+
+# Metrics for evaluating models
+
+Some common metrics for evaluating regression models:
+
+- Goodness-of-fit measures
+
+  + R-squared: proportion of variance explained
+  
+  + Akaike Information Criterion (AIC)
+  
+  + Bayesian Information Criterion (BIC)
+  
+- Predictive ability
+
+  + Root mean squared error (RMSE)
+  
+  + Mean absolute error (MAE)
+  
+# Goodness-of-fit
+
+We'll use the `broom` package to extract some goodness-of-fit statistics for our two models.
+
+```{r}
+library(broom)
+
+glance(fit1)
+
+glance(fit2)
+```
+
+## R-squared
+
+R-squared can be interpreted as the variation in the response variable that has been explained by the predictors in the model.
+
+This interpretation can be seen from one possible formulation of R-squared as:
+
+- R-squared = 1 - var(residuals) / var(total)
+
+Since R-squared ranges from 0 to 1, it has a straightforward interpretation, and values closer to 1 are typically seen as stronger models.
+
+A problem with R-squared is that it always increases as additional variables are added. Adjusted R-squared can be used to avoid this issue.
+
+However, neither R-squared nor adjusted R-squared measure predictive ability or usefulness of a model for statistical inference, so other metrics are preferable.
+
+## AIC and BIC
+
+The AIC and BIC are criteria are likelihood-based criteria that can be useful for comparing candidate models when prediction on new data is not required.
+
+Both protect over-fitting by penalizing the number of parameters in the model, but in slightly different ways.
+
+```{r}
+AIC(fit1)
+AIC(fit2)
+```
+
+Smaller values indicate a better fit.
+
+```{r}
+BIC(fit1)
+BIC(fit2)
+```
+
+Neither value has a direct interpretation.
+
+However, minimizing AIC is equivalent to minimizing the KL-divergence between the observed data and the predicted values.
+
+Minimizing BIC is equivalent to maximizing the posterior likelihood of the data given the model.
+
+# Predictive ability
+
+## RMSE
+
+The root mean squared error (RMSE) is a common way of measuring accuracy in regression problems.
+
+RMSE is calculated as the square root of the mean of squared errors.
+
+```{r}
+sqrt(mean(resid(fit1)^2)) # direct calculation
+
+modelr::rmse(fit1, diamonds10k) # convenience
+
+modelr::rmse(fit2, diamonds10k)
+```
+
+Due to using the squared errors, RMSE is sensitive to outliers and large errors.
+
+Smaller RMSEs are better.
+
+## MAE
+
+Mean absolute error (MAE) offers a more easily-interpretable alternative to RMSE
+
+```{r}
+mean(abs(resid(fit1))) # direct calculation
+
+modelr::mae(fit1, diamonds10k) # convenience
+
+modelr::mae(fit2, diamonds10k)
+```
+
+Because it uses absolute values rather than squared errors, it is less sensitive to outliers and large errors.
+
+Smaller MAEs are better.
+
+## Over-fitting
+
+Over-fitting is a problem with evaluating predictive ability on the same data that we used to fit the model.
+
+Our measures are too optimistic compared to predicting on new data.
+
+In fact, adding more variables always improves the accuracy.
+
+```{r}
+fit3 <- lm(log10(price) ~ log2(carat) + cut + color + clarity +
+             x + y + z, data=diamonds10k)
+
+fit4 <- lm(log10(price) ~ log2(carat) + cut + color + clarity +
+             x + y + z + depth + table, data=diamonds10k)
+```
+
+More variables keeps improving RMSE.
+
+```{r}
+rmse(fit1, diamonds10k) # 1 variable
+rmse(fit2, diamonds10k) # 4 variables
+rmse(fit3, diamonds10k) # 7 variables
+rmse(fit4, diamonds10k) # 9 variables
+```
+
+We observe the same with the MAE.
+
+```{r}
+mae(fit1, diamonds10k) # 1 variable
+mae(fit2, diamonds10k) # 4 variables
+mae(fit3, diamonds10k) # 7 variables
+mae(fit4, diamonds10k) # 9 variables
+```
+
+After a certain point, we are learning the noise in the dataset rather than the true signal.
+
+# Training and testing
+
+In order to calculate an accurate measure of predictive ability on new data, we need to test our model on data that has not been used to train it.
+
+## Partitioning the dataset
+
+We can test our model on "new" data by partitioning our data beforehand.
+
+- A __training__ set for EDA and training candidate models
+
+- A __validation__ set for comparing and selecting models
+
+- A __test__ set for testing the final model
+
+We need a validation set if we are comparing models, because it's also possible to over-fit in the model selection process.
+
+We can use `modelr::resample_partition()` to partition the dataset.
+
+```{r}
+set.seed(2)
+diamonds_part <- resample_partition(diamonds10k,
+                                    p=c(train=0.6,
+                                        valid=0.2,
+                                        test=0.2))
+
+diamonds_part
+```
+
+## Training
+
+Let's re-train the models on the training set.
+
+```{r}
+fit_t1 <- lm(log10(price) ~ log2(carat), data=diamonds_part$train)
+
+fit_t2 <- lm(log10(price) ~ log2(carat) + cut + color + clarity,
+             data=diamonds_part$train)
+
+fit_t3 <- lm(log10(price) ~ log2(carat) + cut + color + clarity +
+               x + y + z, data=diamonds_part$train)
+
+fit_t4 <- lm(log10(price) ~ log2(carat) + cut + color + clarity +
+               x + y + z + depth + table, data=diamonds_part$train)
+```
+
+## Validation
+
+We can compare the models on the validation set.
+
+```{r}
+rmse(fit_t1, diamonds_part$valid) # 1 variable
+rmse(fit_t2, diamonds_part$valid) # 4 variables
+rmse(fit_t3, diamonds_part$valid) # 7 variables
+rmse(fit_t4, diamonds_part$valid) # 9 variables
+```
+
+We select the best model with the lowest RMSE on the validation set.
+
+Note that the most complex model (with the most variables) is no longer the best. It was over-fitting on the training set, as revealed by performing worse than a simpler model on the validation set.
+
+## Testing
+
+Finally, we can test the selected model on the test set.
+
+```{r}
+rmse(fit_t3, diamonds_part$test)
+```
+
+This process gives us a more accurate measure of our model's predictive ability for new data.
+
+# Cross-validation
+
+Cross-validation gives us a way to use a larger portion of our data for both training and validation.
+
+- Partition the data in *k* subsets
+
+- Repeat *k* times:
+
+  + Hold out one of the *k* subsets for testing
+  
+  + Train model on the other pool of *k - 1* subsets
+  
+  + Test the model on the subset held out for testing
+  
+- Calcualte average predictive performance over all *k* folds
+
+## Partitioning data for CV
+
+We can use `modelr::crossv_kfold()` to partition the dataset for cross-validation.
+
+The result is a data frame with list-columns. The columns are lists containing the training and test sets for each fold.
+
+```{r}
+set.seed(3)
+
+diamonds_train <- diamonds10k[-diamonds_part$test$idx,]
+
+diamonds_cv <- crossv_kfold(diamonds_train, 5)
+
+diamonds_cv
+```
+
+## Performing CV
+
+Below we use `map()` to fit models to all of the training sets, and then calculate their RMSEs.
+
+The `purrr::map()` function is similar to `lapply()`, but provides a syntactic sugar for writing anonymous functions using a formula interface.
+
+Note that:
+
+- `purrr::map(x, ~ .)`
+
+is equivalent to:
+
+- `lapply(x, function(xi) xi)`
+
+```{r}
+cv_t1 <- diamonds_cv %>%
+  mutate(fit = purrr::map(train,
+                   ~ lm(log10(price) ~ log2(carat), data = .)),
+         rmse = purrr::map2_dbl(fit, test, ~ rmse(.x, .y)))
+
+cv_t1
+```
+
+Now we can get the cross-validated RMSE.
+
+```{r}
+mean(cv_t1$rmse)
+```
+
+## Comparing models using CV
+
+To more easily compare models using cross-validation, let's first write a function for performing CV on the diamonds dataset for any given model formula.
+
+```{r}
+do_diamonds_cv <- function(formula) {
+  diamonds_cv %>%
+    mutate(fit = map(train,
+                     ~ lm(formula, data = .)),
+         rmse = map2_dbl(fit, test, ~ rmse(.x, .y))) %>%
+    summarize(cv_rmse = mean(rmse)) %>%
+    pull(cv_rmse)
+}
+```
+
+Now we can use our function to perform cross-validation on our four models.
+
+```{r}
+do_diamonds_cv(log10(price) ~ log2(carat))
+
+do_diamonds_cv(log10(price) ~ log2(carat) + cut + color + clarity)
+
+do_diamonds_cv(log10(price) ~ log2(carat) + cut + color + clarity +
+                 x + y + z)
+
+do_diamonds_cv(log10(price) ~ log2(carat) + cut + color + clarity +
+                 x + y + z + depth + table)
+```
+
+For very similarly-performing models, the random partitioning can have an effect on the choice of best model.
+
+This time, we would select a different model than before.
+
+```{r}
+fit_cv_t2 <- lm(log10(price) ~ log2(carat) + cut + color + clarity,
+                data=diamonds_train)
+
+rmse(fit_cv_t2, diamonds_part$test)
+```
+
+# Model selection
+
+In the above examples, we only compared four models.
+
+How do we know those are the best combinations of variables?
+
+We need a way of methodically comparing models and selecting the best variables to use for prediction.
+
+## Stepwise selection
+
+Stepwise selection is a greedy procedure in which we iteratively add/drop the best/worst variable to the model.
+
+In forward selection, we begin with an empty model (no candidate variables), and at each step, we add the variable that improves the model the most.
+
+In backward elimination, we begin with a full model (all candidate variables), and at each step, we drop the variable that contributes the least to the model.
+
+Below, we write a function for performing one step using RMSE.
+
+```{r}
+step1 <- function(response, predictors, candidates, partition)
+{
+  rhs <- paste0(paste0(predictors, collapse="+"), "+", candidates)
+  formulas <- lapply(paste0(response, "~", rhs), as.formula)
+  rmses <- sapply(formulas,
+                  function(fm) rmse(lm(fm, data=partition$train),
+                                    data=partition$valid))
+  names(rmses) <- candidates
+  attr(rmses, "best") <- rmses[which.min(rmses)]
+  rmses
+}
+```
+
+Let's initialize a variable for tracking out model.
+
+```{r}
+model <- NULL
+```
+
+Step 1 (no variables):
+
+```{r}
+preds <- "1"
+cands <- c("log2(carat)", "cut", "color", "clarity",
+          "x", "y", "z", "depth", "table")
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+Step 2:
+
+```{r}
+preds <- "log2(carat)"
+cands <- c("cut", "color", "clarity",
+          "x", "y", "z", "depth", "table")
+
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+Step 3:
+
+```{r}
+preds <- c("log2(carat)", "clarity")
+cands <- c("cut", "color",
+          "x", "y", "z", "depth", "table")
+
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+Step 4:
+
+```{r}
+preds <- c("log2(carat)", "clarity", "color")
+cands <- c("cut",
+          "x", "y", "z", "depth", "table")
+
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+Step 5:
+
+```{r}
+preds <- c("log2(carat)", "clarity", "color", "cut")
+cands <- c("x", "y", "z", "depth", "table")
+
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+Step 6:
+
+```{r}
+preds <- c("log2(carat)", "clarity", "color", "cut",
+           "x")
+cands <- c("y", "z", "depth", "table")
+
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+Step 7 (stop):
+
+```{r}
+preds <- c("log2(carat)", "clarity", "color", "cut",
+           "x", "z")
+cands <- c("y", "depth", "table")
+
+s1 <- step1("log10(price)", preds, cands, diamonds_part)
+
+model <- c(model, attr(s1, "best"))
+s1
+```
+
+At this point, the RMSE has increased, so we would stop, and not include `depth` in our final model.
+
+We can visualize how adding each variable affects the RMSE.
+
+```{r}
+step_model <- tibble(index=seq_along(model),
+                     variable=factor(names(model), levels=names(model)),
+                     RMSE=model)
+
+ggplot(step_model, aes(y=RMSE)) +
+  geom_point(aes(x=variable)) +
+  geom_line(aes(x=index)) +
+  labs(title="Stepwise model selection") +
+  theme_minimal()
+```
+
+After adding `color`, each additional variable has significantly less effect on improving the RMSE, until adding `depth` makes the model worse.
+
+## Other options
+
+Other options for selecting the best variables to include in a model:
+
+- Contextual knowledge
+
+  + Background knowledge and common sense can help greatly in determining which variables should not be included
+
+- Exhaustive search
+
+  + While computationally-intensive, it would be possible to try all combinations of variables
+  
+- Sparse methods
+
+  + Sparse methods use regularization to automatically select variables by shrinking coefficients for less-important variables to zero
+  

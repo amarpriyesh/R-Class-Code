@@ -1,0 +1,490 @@
+---
+title: "Supervised learning"
+author: "Kylie Ariel Bemis"
+date: "11/13/2020"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Supervised learning
+
+- Machine "learns" via supervised examples
+
+- Train on example input with correct output
+
+- Predict output for new input
+
+- Always train model and evaluate predictive performance on separate data!
+
+# Example: Sonar
+
+For some examples, we will classify sonar data.
+
+We will use the `Sonar` dataset from the `mlbench` package.
+
+This includes data from 60 frequency channels. We would like to predict whether the sonar signal is bouncing off a metal cylinder (e.g., a man-made object) or a natural rock.
+
+```{r}
+library(tidyverse)
+library(mlbench)
+data(Sonar)
+
+sonar <- as_tibble(Sonar)
+
+select(sonar, 1:9, Class)
+```
+
+# Example: Diabetes
+
+For another set of examples, we will consider building a classification model for predicting diabetes.
+
+We will use the `PimaIndianDiabetes2` dataset from the `mlbench` package.
+
+The dataset includes health data collected from the Pima people (Akimel O'otham) of the American southwest.
+
+Due to the effects of colonization, diabetes has become a major health risk among Native American communities in the US, with the Pima people having the highest prevalence of diabetes in the world.
+
+```{r message=FALSE}
+data(PimaIndiansDiabetes2)
+
+pima <- as_tibble(PimaIndiansDiabetes2)
+
+pima2 <- mutate(pima, Diabetes=recode(diabetes, neg="Negative", pos="Positive"))
+
+pima
+```
+
+We visualize the data below:
+
+```{r}
+ggplot(pima2, aes(x=Diabetes, y=mass, fill=Diabetes)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  scale_fill_brewer(palette="Set1", direction=-1) +
+  labs(y="Body mass index (BMI)",
+       title="Higher body mass index (BMI) associated with diabetes") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(pima2, aes(x=Diabetes, y=glucose, fill=Diabetes)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette="Set1", direction=-1) +
+  labs(y="Glucose",
+       title="Higher glucose associated with diabetes") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(pima2, aes(x=Diabetes, y=insulin, fill=Diabetes)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  scale_fill_brewer(palette="Set1", direction=-1) +
+  labs(y="Insulin",
+       title="Higher insulin associated with diabetes") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(pima2, aes(x=Diabetes, y=pressure, fill=Diabetes)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette="Set1", direction=-1) +
+  labs(y="Blood pressure",
+       title="Higher blood pressure associated with diabetes") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(pima2, aes(x=Diabetes, y=triceps, fill=Diabetes)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  scale_fill_brewer(palette="Set1", direction=-1) +
+  labs(y="Triceps skin fold thickness",
+       title="Higher skin fold thickness associated with diabetes") +
+  theme_minimal()
+```
+
+# Partioning the data
+
+## Sonar data
+
+First, we partition the sonar data for training and testing.
+
+We will use the `caret` package to generate the training rows
+
+```{r warning=FALSE}
+library(caret)
+
+set.seed(1)
+train <- createDataPartition(sonar$Class, p=0.6, list=FALSE)
+
+table(sonar$Class[train])
+
+sonar_train <- sonar[as.integer(train),]
+sonar_test <- sonar[-as.integer(train),]
+```
+
+*Stratified sampling* ensures we have a proper mix of both classes in both training and test sets.
+
+## Diabetes data
+
+Next, we partition the diabetes data for training and testing.
+
+```{r warning=FALSE}
+set.seed(2)
+train <- createDataPartition(pima$diabetes, p=0.6, list=FALSE)
+
+table(pima$diabetes[train])
+
+pima_train <- pima[as.integer(train),]
+pima_test <- pima[-as.integer(train),]
+```
+
+# Logistic regression
+
+Logistic regression is similar to linear regression, but for a categorical response. It is a type of *generalized linear model* (GLM).
+
+A generalized linear model is parameterized similarly to a linear model, but the response is related to the linear predictor via a *link function* __g(y)__.
+
+Logistic regression is defined by a **logit** link function that maps a binary response (0, 1) variable to continuous values (-Inf, Inf):
+
+*logit(p) = log{p / (1 - p)}*.
+
+## Fitting a logistic regression model
+
+```{r}
+fit <- glm(diabetes ~ glucose, data=pima_train, family=binomial(link="logit"))
+
+summary(fit)
+```
+
+We can use `predict()` to get the predicted probabilities.
+
+```{r}
+prob <- predict(fit, newdata=pima_test, type="response")
+
+pred <- ifelse(prob > 0.5, "pos", "neg")
+
+hist(prob)
+```
+
+Now we can calculate the accuracy:
+
+```{r}
+mean(pred == pima_test$diabetes, na.rm=TRUE)
+```
+
+And a confusion matrix:
+
+```{r}
+table(pred, pima_test$diabetes)
+```
+
+We can use the confusion matrix to calculate sensitivity and specificity.
+
+```{r}
+54 / (54 + 52) # sensitivity
+
+163 / (163 + 35) # specificity
+```
+
+Alternatively, we can calculate precision and recall.
+
+```{r}
+P <- 54 / (54 + 35) # precision
+P
+
+R <- 54 / (54 + 52) # recall
+R
+
+2 * (P * R) / (P + R) # F1
+```
+
+## Plotting the ROC
+
+Changing the cutoff probability for class assignment can affect the sensitivity and specificity.
+
+It can be useful to calculate and plot the tradeoff between sensitivity and specificity for different cutoffs.
+
+This is traditionally visualized as an ROC curve, which plots the *true positive rate* (sensitivity) against the *false positive rate* (1 - specificity):
+
+First we write functions for calculating sensitivity and specificity for a given probability cutoff.
+
+```{r}
+sens <- function(c, p, ref, positive = levels(ref)[2])
+{
+  mean((p > c)[ref == positive], na.rm=TRUE)
+}
+
+sens(0.5, prob, pima_test$diabetes)
+
+spec <- function(c, p, ref, negative = levels(ref)[1])
+{
+  mean((p < c)[ref == negative], na.rm=TRUE)
+}
+
+spec(0.5, prob, pima_test$diabetes)
+```
+
+Now we plot the ROC curve:
+
+```{r}
+library(dplyr)
+library(purrr)
+roc <- tibble(p=seq(from=0, to=1, by=0.01)) %>%
+  mutate(sensitivity = map_dbl(p, sens, p=prob, ref=pima_test$diabetes),
+         specificity = map_dbl(p, spec, p=prob, ref=pima_test$diabetes),
+         TPR=sensitivity,
+         FPR=1 - specificity)
+roc
+
+ggplot(roc, aes(x=FPR, y=TPR)) + 
+  geom_path(color="red", size=1) +
+  geom_vline(xintercept=0, color="green", linetype="dotdash") +
+  geom_hline(yintercept=1, color="green", linetype="dotdash") +
+  geom_abline(intercept=0, slope=1, color="blue", linetype="dotted") +
+  labs(x="False positive rate (1 - specificity)",
+       y="True positive rate (sensitivity)") +
+  theme_minimal()
+```
+
+We can approximate the area under the curve (AUC).
+
+A strong classifier will have an AUC close to 1.
+
+```{r}
+sum(roc$TPR[-1] * abs(diff(roc$FPR))) # AUC
+```
+
+Alternatively, we can use the `plotROC` package.
+
+```{r}
+library(modelr)
+library(plotROC)
+
+g <- pima_test %>%
+  add_predictions(fit, type="response") %>%
+  mutate(Diabetes=recode(diabetes, neg=0, pos=1)) %>%
+  ggplot(aes(m=pred, d=Diabetes)) +
+  geom_roc() +
+  style_roc()
+
+auc <- round((calc_auc(g))$AUC, 4)
+
+g + annotate("text", x=0.75, y=0.25, label=paste("AUC =", auc))
+```
+
+## Comparing models
+
+It is easier to use `caret` to train classification models.
+
+First, we re-level the data so the "positive" class is the first level.
+
+```{r}
+pima_train2 <- mutate(pima_train, diabetes=relevel(diabetes, "pos"))
+pima_test2 <- mutate(pima_test, diabetes=relevel(diabetes, "pos"))
+```
+
+Next, we can use `train()` to train our model.
+
+Using `caret` lets us easily use median imputation so that we do not throw away as many rows as we add predictors with more missing values.
+
+```{r warning=FALSE}
+fit1 <- train(diabetes ~ glucose, data=pima_train2,
+              method="glm", family=binomial(link="logit"),
+              preProcess="medianImpute",
+              trControl=trainControl(method="none"),
+              na.action=na.pass)
+
+confusionMatrix(predict(fit1, pima_test2, na.action=na.pass),
+                pima_test2$diabetes)
+```
+
+```{r warning=FALSE}
+fit1 <- train(diabetes ~ glucose + insulin, data=pima_train2,
+              method="glm", family=binomial(link="logit"),
+              preProcess="medianImpute",
+              trControl=trainControl(method="none"),
+              na.action=na.pass)
+
+confusionMatrix(predict(fit1, pima_test2, na.action=na.pass),
+                pima_test2$diabetes)
+```
+
+```{r warning=FALSE}
+fit1 <- train(diabetes ~ glucose + mass, data=pima_train2,
+              method="glm", family=binomial(link="logit"),
+              preProcess="medianImpute",
+              trControl=trainControl(method="none"),
+              na.action=na.pass)
+
+confusionMatrix(predict(fit1, pima_test2, na.action=na.pass),
+                pima_test2$diabetes)
+```
+
+```{r warning=FALSE}
+fit1 <- train(diabetes ~ glucose + mass + triceps, data=pima_train2,
+              method="glm", family=binomial(link="logit"),
+              preProcess="medianImpute",
+              trControl=trainControl(method="none"),
+              na.action=na.pass)
+
+confusionMatrix(predict(fit1, pima_test2, na.action=na.pass),
+                pima_test2$diabetes)
+```
+
+## Balancing classes
+
+It's important to note when classes are imbalanced. This can have a major effect on the bias of the classifier.
+
+```{r}
+ggplot(pima2, aes(x=Diabetes, fill=Diabetes)) +
+  geom_bar() +
+  scale_fill_brewer(palette="Set1", direction=-1) +
+  labs(title="Class imbalance for diabetes") +
+  theme_minimal()
+```
+
+We can use `caret` to automatically perform downsampling or upsampling for us by setting the `sampling="down"` or `sampling="up"` parameter.
+
+### Downsampling
+
+```{r warning=FALSE}
+set.seed(1)
+fit1 <- train(diabetes ~ glucose, data=pima_train2,
+              method="glm", family=binomial(link="logit"),
+              preProcess="medianImpute",
+              trControl=trainControl(method="none",
+                                     sampling="down"),
+              na.action=na.pass)
+
+confusionMatrix(predict(fit1, pima_test2, na.action=na.pass),
+                pima_test2$diabetes)
+```
+
+### Upsampling
+
+```{r warning=FALSE}
+set.seed(2)
+fit2 <- train(diabetes ~ glucose, data=pima_train2,
+              method="glm", family=binomial(link="logit"),
+              preProcess="medianImpute",
+              trControl=trainControl(method="none",
+                                     sampling="up"),
+              na.action=na.pass)
+
+confusionMatrix(predict(fit2, pima_test2, na.action=na.pass),
+                pima_test2$diabetes)
+```
+
+# Sparse logistic regression
+
+A sparse model uses only a small subset of the input predictors (because most of the model parameters are forced to 0 by constraints).
+
+## Fit using `glmnet`
+
+The `glmnet` package fits generalized linear models with an L1 and L2 penalty on the coefficients.
+
+The L1 penalty (the "lasso") forces many of the coefficients to be 0, essentially removing them from the model.
+
+```{r}
+sonar_x <- as.matrix(sonar_train[,1:60])
+sonar_y <- ifelse(sonar_train$Class == "R", 0, 1)
+
+library(glmnet)
+
+fit1 <- glmnet(sonar_x, sonar_y, family="binomial")
+
+plot(fit1, xvar="lambda", label=TRUE)
+```
+
+Larger values of the sparsity parameter lambda force more coefficients to 0.
+
+We can use cross-validation to find the best values for lambda.
+
+```{r warning=FALSE}
+cvfit <- cv.glmnet(sonar_x, sonar_y)
+
+plot(cvfit)
+```
+
+We can either choose the lambda that results in the best model, or the largest lambda (most sparse model) that is within 1 standard error of the best model.
+
+```{r warning=FALSE}
+c1 <- coef(cvfit, s="lambda.min")
+c1
+
+sum(c1 != 0)
+
+plot(c1, type='h', ylim=c(-4, 4),
+     xlab="Channel", ylab="Coefficient",
+     main="Sparse regression coefficients (min)")
+```
+
+```{r warning=FALSE}
+c2 <- coef(cvfit, s="lambda.1se")
+
+sum(c2 != 0)
+
+plot(c2, type='h', ylim=c(-4, 4),
+     xlab="Channel", ylab="Coefficient",
+     main="Sparse regression coefficients (1se)")
+```
+
+## Fit using `caret`
+
+We can use `caret` to fit more than 200 models from more than 40 packages, including sparse regression using `glmnet`.
+
+The main difference is here we must set the grid search for the best lambda parameter manually.
+
+```{r warning=FALSE}
+ctrl <- trainControl(method="repeatedcv", number=5, repeats=5)
+
+grd <- expand.grid(lambda=exp(seq(from=-7, to=-2, length.out=20)),
+                   alpha=1)
+
+set.seed(1)
+fit2 <- train(Class ~ ., data=sonar_train,
+              method="glmnet", family="binomial",
+              preProcess=c("center", "scale"),
+              trControl=ctrl, tuneGrid=grd)
+fit2
+```
+
+```{r}
+plot(fit2)
+```
+
+We plot the non-zero coefficients for the best model below.
+
+```{r}
+c3 <- coef(fit2$finalModel, s=fit2$bestTune$lambda)
+c3
+
+sum(c3 != 0)
+
+plot(c3, type='h', ylim=c(-4, 4),
+     xlab="Channel", ylab="Coefficient",
+     main="Sparse regression coefficients (caret)")
+```
+
+And produce a confusion matrix on the test data.
+
+```{r warning=FALSE}
+confusionMatrix(predict(fit2, sonar_test),
+                sonar_test$Class)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

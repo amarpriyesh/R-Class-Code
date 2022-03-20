@@ -1,0 +1,469 @@
+---
+title: "Statistical Inference"
+author: "Kylie Ariel Bemis"
+date: "10/30/2020"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Statistical inference
+
+## Statistics and parameters
+
+We use __sample statistics__ to estimate __population parameters__.
+
+However, to quantify the uncertainty in our estimation, we need to know the distribution of the statistic.
+
+## Distributions of statistics
+
+Let's suppose the diamond dataset is our population of diamonds.
+
+(Typically, we would consider this dataset to be a small sample of all diamonds, but here, we suppose these are the complete population of diamonds.)
+
+```{r}
+library(ggplot2)
+
+mean(diamonds$price)
+
+ggplot(diamonds, aes(x=price)) + 
+  geom_histogram(binwidth=200) +
+  labs(x="Price (US$)",
+       title="Distribution of diamond price") +
+  theme_minimal()
+```
+
+We can draw a sample from our population to estimate the true mean.
+
+If we repeat this a large number of times, we can get an idea of the distribution of the sample mean.
+
+### Sample means
+
+Using a sample size N=100, let's collect 100 samples.
+
+```{r message=FALSE}
+library(dplyr)
+
+N <- 100
+nsamples <- 100
+set.seed(nsamples)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples), mean=colMeans(s))
+
+ggplot(s, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  coord_cartesian(xlim=c(2500, 5500)) +
+  theme_minimal()
+mean(s$mean)
+sd(s$mean)
+```
+
+What if we collected 500 samples?
+
+```{r message=FALSE}
+N <- 100
+nsamples <- 500
+set.seed(nsamples)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples), mean=colMeans(s))
+
+ggplot(s, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  coord_cartesian(xlim=c(2500, 5500)) +
+  theme_minimal()
+mean(s$mean)
+sd(s$mean)
+```
+
+What if we collected 1000 samples?
+
+```{r message=FALSE}
+N <- 100
+nsamples <- 1000
+set.seed(nsamples)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples), mean=colMeans(s))
+
+ggplot(s, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  theme_minimal()
+mean(s$mean)
+sd(s$mean)
+```
+
+We can see over a large number of samples, the distribution of the sample statistic begins to appear normal.
+
+### Sample size
+
+Instead of changing the number of samples we collect, what if we change the sample size of each sample?
+
+```{r message=FALSE}
+N <- 100
+nsamples <- 250
+set.seed(nsamples)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples), mean=colMeans(s))
+
+ggplot(s, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  coord_cartesian(xlim=c(3000, 5000)) +
+  theme_minimal()
+mean(s$mean)
+sd(s$mean)
+```
+
+What if we collected 500 samples?
+
+```{r message=FALSE}
+N <- 500
+nsamples <- 250
+set.seed(nsamples)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples), mean=colMeans(s))
+
+ggplot(s, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  coord_cartesian(xlim=c(3000, 5000)) +
+  theme_minimal()
+mean(s$mean)
+sd(s$mean)
+```
+
+What if we collected 1000 samples?
+
+```{r message=FALSE}
+N <- 1000
+nsamples <- 250
+set.seed(nsamples)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples), mean=colMeans(s))
+
+ggplot(s, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  coord_cartesian(xlim=c(3000, 5000)) +
+  theme_minimal()
+mean(s$mean)
+sd(s$mean)
+```
+
+We can see increasing the sample size can greatly reduce the variance of the distribution of the sample statistic.
+
+## Normal distribution
+
+We can use properties of the normal distribution to make statistical inference about the population from the sample statistics.
+
+```{r}
+set.seed(1)
+normal <- tibble(z=rnorm(10000))
+ggplot(normal, aes(x=z)) + 
+  geom_histogram(binwidth=0.1) +
+  geom_vline(xintercept=c(-3, -2, -1, 1, 2, 3),
+             linetype="dotdash",
+             color="red") +
+  labs(title="Normal distribution") +
+  theme_minimal()
+```
+
+# Confidence intervals
+
+Build 95% confidence intervals for the mean from 20 samples.
+
+First, we need to know the multiplier for the standard error. For a 95% confidence interval, we leave 2.5% on either side of the interval, so we find the z-score to corresponds to a normal cdf of .975.
+
+```{r}
+qnorm(0.975)
+```
+
+We'll use 1.96.
+
+For greater statistical validity, we would want to use t-distribution with N-1 degrees of freedom.
+
+```{r}
+qt(0.975, df=N-1)
+```
+
+But using the normal distribution is often a reasonable approximation.
+
+```{r}
+N <- 100
+nsamples <- 20
+set.seed(2021)
+s <- replicate(nsamples, sample_n(diamonds, N)$price)
+s <- tibble(sample=seq_len(nsamples),
+            mean=colMeans(s),
+            se=apply(s, 2, sd) / sqrt(N),
+            ci_lower = mean - 1.96 * se,
+            ci_upper = mean + 1.96 * se)
+s
+
+ggplot(s) +
+  geom_vline(xintercept=mean(diamonds$price),
+             color="blue") +
+  geom_segment(aes(x=ci_lower, xend=ci_upper,
+              y=sample, yend=sample)) +
+  geom_point(aes(x=ci_lower, y=sample)) +
+  geom_point(aes(x=ci_upper, y=sample)) +
+  labs(x="Price (US$)",
+       title="95% confidence intervals for diamond price") +
+  theme_minimal()
+```
+
+# Hypothesis tests
+
+## Testing for the true mean
+
+Suppose we want to test whether the mean price of diamonds is greater than $3000. Then our test is set up as:
+
+- H0: true mean price of diamonds = $3000
+
+- H1: true mean price of diamonds > $3000
+
+This is a __one-sided test__: we are only interested in differences in one direction.
+
+Let's collect a sample of size N=100 diamonds:
+
+```{r}
+set.seed(2021)
+N <- 100
+s <- sample_n(diamonds, N)
+mean(s$price)
+sd(s$price)
+
+se <- sd(s$price) / sqrt(N)
+se
+```
+
+We can use this estimate of the standard error to simulate the null distribution of the sample means.
+
+```{r}
+set.seed(2021)
+nsamples <- 1000
+h0mean <- 3000
+h0 <- rnorm(nsamples, mean=h0mean, sd=se)
+h0 <- tibble(sample=seq_len(nsamples), mean=h0)
+
+ggplot(h0, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  geom_vline(xintercept=h0mean,
+             color="blue") +
+  geom_vline(xintercept=mean(s$price),
+             linetype="dotdash",
+             color="red") +
+  theme_minimal()
+
+summarize(h0, PValue=mean(mean > mean(s$price)))
+```
+
+If the true price of diamonds is $3000, then only 0.5% of samples result in a sample mean as large as the one we observed.
+
+Hence, the p-value from this simulation is 0.005.
+
+We can calculate the p-value from theory using the normal distribution:
+
+```{r}
+z <- (mean(s$price) - h0mean) / se
+1 - pnorm(z)
+```
+
+For greater statistical validity, a t-distribution is preferred.
+
+```{r}
+z <- (mean(s$price) - h0mean) / se
+1 - pt(z, df=N-1)
+```
+
+In either case, the p-value is very small, so we would reject the null hypothesis that the true mean price of diamonds is $3000 (or less).
+
+## Type I errors
+
+What if the null hypothesis is true?
+
+- H0: true mean price of diamonds = $3932.80
+
+- H1: true mean price of diamonds != $3932.80
+
+This is a __two-sided test__: we are interested in differences in either direction.
+
+```{r}
+set.seed(2021)
+nsamples <- 1000
+h0mean <- mean(diamonds$price)
+h0 <- rnorm(nsamples, mean=h0mean, sd=se)
+h0 <- tibble(sample=seq_len(nsamples),
+             mean=h0,
+             z=(mean - h0mean) / se)
+
+ggplot(h0, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  geom_vline(xintercept=h0mean,
+             color="blue") +
+  geom_vline(xintercept=mean(s$price),
+             linetype="dotdash",
+             color="green") +
+  theme_minimal()
+
+z_obs <- (mean(s$price) - h0mean) / se
+summarize(h0, PValue=mean(abs(z) > z_obs)) # 2-sided test
+```
+
+The p-value from simulation is 0.752, so we would fail to reject H0.
+
+Let's repeat our sampling 20 times:
+
+ 
+```
+
+Note that for two-sided tests, we multiply the one-sided p-value by 2, since we are partitioning the statistical significance cutoff to both tails.
+
+At alpha = 0.05 significance, we reject H0 in 1 out of 20 tests. This is a __Type I error__, when we reject H0 even though H0 is true.
+
+The probability of a Type I error for any test is equal to alpha (the pre-selected statistical significance level).
+
+```{r}
+ggplot(h0, aes(x=mean)) + 
+  geom_histogram(binwidth=50) +
+  geom_vline(xintercept=h0mean,
+             color="blue") +
+  geom_vline(xintercept=s2$mean,
+             linetype="dotdash",
+             color="green") +
+  geom_vline(xintercept=filter(s2, PValue < 0.05)$mean,
+             linetype="dotdash",
+             color="red") +
+  theme_minimal()
+```
+
+## Linear models
+
+Does cut affect diamond price?
+
+- H0: there is no relationship between price and cut
+
+- H1: there is a relationship between price and cut
+
+```{r}
+diamonds2class <- diamonds %>%
+  filter(cut %in% c("Fair", "Ideal")) %>%
+  transmute(price, carat,
+            cut_ord = cut,
+            cut = as.character(cut_ord))
+
+diamonds2class
+```
+
+### Test with a categorical variable
+
+```{r}
+N <- 250
+set.seed(2021)
+diamonds_subset <- sample_n(diamonds2class, N)
+
+fit1 <- lm(log10(price) ~ cut, data=diamonds_subset)
+
+summary(fit1)
+```
+
+The variable is significant, but the coefficient has the wrong sign!
+
+```{r}
+N <- 250
+set.seed(2021)
+diamonds_subset <- sample_n(diamonds2class, N)
+
+fit2 <- lm(log10(price) ~ log2(carat) + cut, data=diamonds_subset)
+
+summary(fit2)
+```
+
+After accounting for the effect of carat, cut is still significant, and the coefficient has a sensible sign.
+
+### Using ANOVA to compare models
+
+```{r}
+N <- 500
+set.seed(2021)
+diamonds_subset <- diamonds %>%
+  sample_n(N) %>%
+  mutate(cut_ord = cut,
+         color_ord = forcats::fct_relevel(color, rev(levels(color))),
+         clarity_ord = clarity,
+         cut = as.character(cut_ord),
+         color = as.character(color_ord),
+         clarity = as.character(clarity_ord))
+
+fit1 <- lm(log10(price) ~ log2(carat) + cut, data=diamonds_subset)
+fit2 <- lm(log10(price) ~ log2(carat), data=diamonds_subset)
+
+anova(fit1, fit2)
+
+anova(fit1)
+```
+
+\newpage
+
+```{r}
+summary(fit1)
+```
+
+## Many tests
+
+Beware of performing many statistical tests at once!
+
+```{r}
+N_pop <- 10000
+P <- 100
+
+set.seed(2021)
+x <- replicate(P, rnorm(50000))
+colnames(x) <- paste0("x", 1:P)
+y <- x[,1] + rnorm(50000)
+pop <- bind_cols(tibble(y=y), as_tibble(x))
+
+pop
+```
+
+```{r}
+N <- 500
+set.seed(2021)
+
+samp <- sample_n(pop, N)
+
+fit <- lm(y ~ ., data=samp)
+
+summary(fit)
+```
+
+Test K hypotheses at alpha significance level, then by random chance alpha * K will be wrongly "significant".
+
+```{r}
+library(broom)
+
+fit %>%
+  tidy() %>%
+  filter(p.value < 0.05)
+```
+
+Use p-value adjustments to correct for multiple testing.
+
+```{r}
+fit %>%
+  tidy() %>%
+  mutate(adj.p.value = p.adjust(p.value,
+                                method="bonferroni")) %>%
+  filter(adj.p.value < 0.05)
+```
+
+```{r}
+fit %>%
+  tidy() %>%
+  mutate(adj.p.value = p.adjust(p.value,
+                                method="fdr")) %>%
+  filter(adj.p.value < 0.05)
+```
+
